@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -35,6 +34,8 @@ const (
 	bigFontSize       float64 = 48
 	windowWidth       float64 = 640
 	windowHeight      float64 = 480
+	leftBoundary              = 50
+	rightBoundary             = windowWidth - 80
 )
 
 type Game struct {
@@ -48,12 +49,12 @@ type player struct {
 }
 
 type Enemy struct {
-	x         float64
-	y         float64
-	img       *ebiten.Image
-	scale     float64
-	state     EntityState
-	moveRight int
+	x          float64
+	y          float64
+	img        *ebiten.Image
+	scale      float64
+	state      EntityState
+	xDirection int
 }
 
 type EntityState int
@@ -71,7 +72,7 @@ func (p *player) moveLeft() {
 }
 
 func (p *player) moveRight() {
-	if p.x <= windowWidth-80 {
+	if p.x <= rightBoundary {
 		p.x++
 	}
 }
@@ -83,24 +84,23 @@ func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
 		g.player.moveRight()
 	}
-	var leftMostEnemy float64 = windowWidth
-	var rightMostEnemy float64 = 0
+
+	leftMostEnemy := windowWidth
+	rightMostEnemy := 0.0
 	for i := range g.enemies {
 		leftMostEnemy = min(leftMostEnemy, g.enemies[i].x)
 		rightMostEnemy = max(rightMostEnemy, g.enemies[i].x)
 	}
-	var switchSidewaysMovement = false
-	fmt.Print(rightMostEnemy)
+	moveLeft := rightMostEnemy >= rightBoundary
+	moveRight := leftMostEnemy < leftBoundary
 
-	if leftMostEnemy <= 50 || rightMostEnemy >= windowWidth-80 {
-		switchSidewaysMovement = true
-	}
 	for i := range g.enemies {
-		if switchSidewaysMovement {
-			g.enemies[i].moveRight = 1 - g.enemies[i].moveRight
-			fmt.Println(g.enemies[i].moveRight)
+		if moveRight {
+			g.enemies[i].xDirection = 1
+		} else if moveLeft {
+			g.enemies[i].xDirection = -1
 		}
-		g.enemies[i].x += float64(g.enemies[i].moveRight)
+		g.enemies[i].x += float64(g.enemies[i].xDirection)
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		Size:   normalFontSize,
 	}, textOp)
 
-	vector.StrokeLine(screen, 50, float32(windowHeight-10),
+	vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
 		float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
 }
 
@@ -266,7 +266,7 @@ func main() {
 	allEnemies = append(allEnemies, enemies[:]...)
 
 	enemyYPos += yGap
-	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.7)
+	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.6)
 	allEnemies = append(allEnemies, enemies[:]...)
 
 	g := &Game{
