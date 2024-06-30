@@ -1,8 +1,10 @@
 package main
 
 import (
+	//"fmt"
 	"github.com/akshayxml/spaders/lib/sprites"
 	"github.com/akshayxml/spaders/models"
+	"github.com/akshayxml/spaders/models/EntityState"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -11,8 +13,10 @@ import (
 	_ "image/jpeg"
 	"log"
 	"math"
+	"math/rand"
 	"os"
 	"strconv"
+	"time"
 )
 
 var (
@@ -39,8 +43,10 @@ const (
 
 type Game struct {
 	player       *models.Player
-	enemies      []Enemy
+	enemies      []models.Enemy
 	playerBullet *bullet
+	score        int
+	enemyBullets []bullet
 }
 
 type bullet struct {
@@ -50,26 +56,8 @@ type bullet struct {
 	isActive  bool
 }
 
-type Enemy struct {
-	x          float64
-	y          float64
-	img        *ebiten.Image
-	scale      float64
-	state      EntityState
-	xDirection int
-}
-
-type EntityState int
-
-const (
-	alive EntityState = iota
-	dead  EntityState = iota
-	dying EntityState = iota
-)
-
-func (b *bullet) fire(startPosition models.Position) {
+func (b *bullet) fire() {
 	if b.isActive == false {
-		b.position = startPosition
 		b.isActive = true
 	}
 }
@@ -78,29 +66,33 @@ func moveEnemySideways(g *Game) {
 	leftMostEnemy := windowWidth
 	rightMostEnemy := 0.0
 	for i := range g.enemies {
-		if g.enemies[i].state == alive {
-			leftMostEnemy = min(leftMostEnemy, g.enemies[i].x)
-			rightMostEnemy = max(rightMostEnemy, g.enemies[i].x)
+		if g.enemies[i].State == EntityState.Alive {
+			leftMostEnemy = min(leftMostEnemy, g.enemies[i].Position.X)
+			rightMostEnemy = max(rightMostEnemy, g.enemies[i].Position.X)
 		}
 	}
 	moveLeft := rightMostEnemy >= rightBoundary
 	moveRight := leftMostEnemy < leftBoundary
 
 	for i := range g.enemies {
-		if g.enemies[i].state == alive {
+		if g.enemies[i].State == EntityState.Alive {
 			if moveRight {
-				g.enemies[i].xDirection = 1
+				g.enemies[i].HorizontalDirection = 1
 			} else if moveLeft {
-				g.enemies[i].xDirection = -1
+				g.enemies[i].HorizontalDirection = -1
 			}
-			g.enemies[i].x += float64(g.enemies[i].xDirection)
+			g.enemies[i].Position.X += float64(g.enemies[i].HorizontalDirection)
 		}
 	}
 }
 
-func moveBullet(g *Game) {
+func moveBullets(g *Game) {
 	if g.playerBullet.isActive {
 		g.playerBullet.position.Y += float64(g.playerBullet.speed * g.playerBullet.direction)
+	}
+
+	for i := range g.enemyBullets {
+		g.enemyBullets[i].position.Y += float64(g.enemyBullets[i].speed * g.enemyBullets[i].direction)
 	}
 }
 
@@ -112,10 +104,21 @@ func (g *Game) Update() error {
 		g.player.MoveRight(rightBoundary)
 	}
 	moveEnemySideways(g)
-	if ebiten.IsKeyPressed(ebiten.KeySpace) {
-		g.playerBullet.fire(models.Position{g.player.Position.X + 20, g.player.Position.Y})
+	if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.playerBullet.isActive {
+		g.playerBullet.position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+		g.playerBullet.fire()
 	}
-	moveBullet(g)
+	moveBullets(g)
+
+	rand.Seed(time.Now().UnixNano())
+	if rand.Intn(100) == 0 {
+		var enemyNumber = rand.Intn(50)
+		if g.enemies[enemyNumber].State == EntityState.Alive {
+			var bullet = bullet{g.enemies[enemyNumber].Position, 1, 2, true}
+			g.enemyBullets = append(g.enemyBullets, bullet)
+			bullet.fire()
+		}
+	}
 	return nil
 }
 
@@ -127,10 +130,12 @@ func renderPlayerImages(g *Game, screen *ebiten.Image) {
 		{580, 10},
 	}
 
-	for i, _ := range playerImgPositions {
-		for _, rect := range sprites.GetPlayerRectangles() {
-			ebitenutil.DrawRect(screen, rect.Position.X+playerImgPositions[i].x, rect.Position.Y+playerImgPositions[i].y,
-				rect.Width, rect.Height, rect.Color)
+	for i := range playerImgPositions {
+		if i <= g.player.Lives {
+			for _, rect := range sprites.GetPlayerRectangles() {
+				ebitenutil.DrawRect(screen, rect.Position.X+playerImgPositions[i].x, rect.Position.Y+playerImgPositions[i].y,
+					rect.Width, rect.Height, rect.Color)
+			}
 		}
 	}
 }
@@ -147,7 +152,7 @@ func renderBunkerImages(screen *ebiten.Image, neonGreen color.RGBA) {
 		{float64(4*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
 	}
 
-	for i, _ := range bunkerPositions {
+	for i := range bunkerPositions {
 		for _, rect := range sprites.GetBunkerRectangles() {
 			ebitenutil.DrawRect(screen, rect.Position.X+bunkerPositions[i].x, rect.Position.Y+bunkerPositions[i].y,
 				rect.Width, rect.Height, rect.Color)
@@ -162,20 +167,26 @@ func renderBullets(g *Game, screen *ebiten.Image) {
 				rect.Width, rect.Height, rect.Color)
 		}
 	}
+	for _, enemyBullet := range g.enemyBullets {
+		for _, rect := range sprites.GetEnemyBulletRectangles() {
+			ebitenutil.DrawRect(screen, rect.Position.X+enemyBullet.position.X, rect.Position.Y+enemyBullet.position.Y,
+				rect.Width, rect.Height, rect.Color)
+		}
+	}
 }
 
-func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (float64, []Enemy) {
+func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (float64, []models.Enemy) {
 	var cols = 10
 	var imgWidth float64 = float64(img.Bounds().Dx()) * scale
 	var imgHeight float64 = float64(img.Bounds().Dy()) * scale
 	var xPosStart float64 = float64(windowWidth/2) - (imgWidth / 2) - 40 - imgWidth*5
 	var xGap float64 = imgWidth + 10
 	var yGap float64 = imgHeight + 10
-	var enemies = []Enemy{}
+	var enemies = []models.Enemy{}
 
 	for y, rowCnt := float64(yPosStart), 0; y < float64(windowHeight) && rowCnt < rows; y, rowCnt = y+yGap, rowCnt+1 {
 		for x, colCnt := float64(xPosStart), 0; x < float64(windowWidth) && colCnt < cols; x, colCnt = x+xGap, colCnt+1 {
-			var enemy = Enemy{x, y, img, scale, alive, 1}
+			var enemy = models.Enemy{models.Position{x, y}, img, scale, EntityState.Alive, 1}
 			enemies = append(enemies, enemy)
 		}
 	}
@@ -185,26 +196,27 @@ func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (
 
 func renderEnemies(g *Game, screen *ebiten.Image) {
 	for _, enemy := range g.enemies {
-		if enemy.state == alive {
+		if enemy.State == EntityState.Alive {
 			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Scale(enemy.scale, enemy.scale)
-			opts.GeoM.Translate(enemy.x, enemy.y)
-			screen.DrawImage(enemy.img, opts)
+			opts.GeoM.Scale(enemy.Scale, enemy.Scale)
+			opts.GeoM.Translate(enemy.Position.X, enemy.Position.Y)
+			screen.DrawImage(enemy.Img, opts)
 		}
 	}
 }
 
 func detectCollision(g *Game) {
 	for i, enemy := range g.enemies {
-		if enemy.state == alive {
-			var enemyRightBound = enemy.x + float64(enemy.img.Bounds().Dx())*enemy.scale
-			var enemyBottonBound = enemy.y + float64(enemy.img.Bounds().Dy())*enemy.scale
-			var enemyTopBound = enemy.y
-			for x := int(math.Floor(enemy.x)); x <= int(math.Ceil(enemyRightBound)); x++ {
+		if enemy.State == EntityState.Alive && g.playerBullet.isActive {
+			var enemyRightBound = enemy.Position.X + float64(enemy.Img.Bounds().Dx())*enemy.Scale
+			var enemyBottonBound = enemy.Position.Y + float64(enemy.Img.Bounds().Dy())*enemy.Scale
+			var enemyTopBound = enemy.Position.Y
+			for x := int(math.Floor(enemy.Position.X)); x <= int(math.Ceil(enemyRightBound)); x++ {
 				if g.playerBullet.position.Y <= enemyBottonBound &&
 					g.playerBullet.position.X == float64(x) && g.playerBullet.position.Y >= enemyTopBound {
 					g.playerBullet.isActive = false
-					g.enemies[i].state = dead
+					g.enemies[i].State = EntityState.Dead
+					g.score++
 				}
 			}
 		}
@@ -213,14 +225,6 @@ func detectCollision(g *Game) {
 	if g.playerBullet.position.Y <= 5 {
 		g.playerBullet.isActive = false
 	}
-
-	//for _, enemyCollisionLocation := range enemyCollisionLocations {
-	//	if g.playerBullet.position.Y <= enemyCollisionLocation.Y &&
-	//		g.playerBullet.position.X == enemyCollisionLocation.X {
-	//		g.playerBullet.position.X = -1
-	//		g.playerBullet.position.Y = -1
-	//	}
-	//}
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -229,12 +233,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	imgOp := &ebiten.DrawImageOptions{}
 	imgOp.GeoM.Scale(0.5, 0.5)
 	screen.DrawImage(bgImg, imgOp)
-
-	detectCollision(g)
-	renderPlayerImages(g, screen)
-	renderEnemies(g, screen)
-	renderBunkerImages(screen, neonGreen)
-	renderBullets(g, screen)
 
 	textOp := &text.DrawOptions{}
 	textOp.GeoM.Translate(50, 13)
@@ -247,7 +245,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	textOp = &text.DrawOptions{}
 	textOp.GeoM.Translate(150, 13)
 	textOp.ColorScale.ScaleWithColor(neonGreen)
-	text.Draw(screen, strconv.Itoa(0), &text.GoTextFace{
+	text.Draw(screen, strconv.Itoa(g.score), &text.GoTextFace{
 		Source: mplusFaceSource,
 		Size:   normalFontSize,
 	}, textOp)
@@ -259,6 +257,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		Source: mplusFaceSource,
 		Size:   normalFontSize,
 	}, textOp)
+
+	detectCollision(g)
+	renderPlayerImages(g, screen)
+	renderEnemies(g, screen)
+	renderBullets(g, screen)
+	renderBunkerImages(screen, neonGreen)
 
 	vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
 		float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
@@ -302,7 +306,7 @@ func main() {
 	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
 	ebiten.SetWindowTitle("Spaders")
 
-	var allEnemies = []Enemy{}
+	var allEnemies = []models.Enemy{}
 	var enemyYPos float64 = 60
 	var yGap, enemies = getEnemies(1, enemyYPos, enemyThreeImg, 0.5)
 	allEnemies = append(allEnemies, enemies[:]...)
@@ -321,6 +325,8 @@ func main() {
 				X: float64(windowWidth / 2),
 				Y: float64(windowHeight - 40),
 			},
+			Lives: 3,
+			Speed: 1.5,
 		},
 		playerBullet: &bullet{
 			position: models.Position{
@@ -332,6 +338,7 @@ func main() {
 			isActive:  false,
 		},
 		enemies: allEnemies,
+		score:   0,
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
