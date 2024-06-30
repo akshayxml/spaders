@@ -112,9 +112,13 @@ func (g *Game) Update() error {
 
 	rand.Seed(time.Now().UnixNano())
 	if rand.Intn(100) == 0 {
-		var enemyNumber = rand.Intn(50)
+		var enemyNumber = rand.Intn(len(g.enemies))
 		if g.enemies[enemyNumber].State == EntityState.Alive {
-			var bullet = bullet{g.enemies[enemyNumber].Position, 1, 2, true}
+			var enemyWidth = g.enemies[enemyNumber].GetEnemyWidth()
+			var enemyHeight = g.enemies[enemyNumber].GetEnemyHeight()
+			var bullet = bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
+				Y: g.enemies[enemyNumber].Position.Y + enemyHeight/2},
+				1, 2, true}
 			g.enemyBullets = append(g.enemyBullets, bullet)
 			bullet.fire()
 		}
