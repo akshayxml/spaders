@@ -10,6 +10,7 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"log"
+	"math"
 	"os"
 	"strconv"
 )
@@ -46,6 +47,7 @@ type bullet struct {
 	position  models.Position
 	direction int
 	speed     int
+	isActive  bool
 }
 
 type Enemy struct {
@@ -66,8 +68,9 @@ const (
 )
 
 func (b *bullet) fire(startPosition models.Position) {
-	if b.position.X == -1 {
+	if b.isActive == false {
 		b.position = startPosition
+		b.isActive = true
 	}
 }
 
@@ -75,24 +78,28 @@ func moveEnemySideways(g *Game) {
 	leftMostEnemy := windowWidth
 	rightMostEnemy := 0.0
 	for i := range g.enemies {
-		leftMostEnemy = min(leftMostEnemy, g.enemies[i].x)
-		rightMostEnemy = max(rightMostEnemy, g.enemies[i].x)
+		if g.enemies[i].state == alive {
+			leftMostEnemy = min(leftMostEnemy, g.enemies[i].x)
+			rightMostEnemy = max(rightMostEnemy, g.enemies[i].x)
+		}
 	}
 	moveLeft := rightMostEnemy >= rightBoundary
 	moveRight := leftMostEnemy < leftBoundary
 
 	for i := range g.enemies {
-		if moveRight {
-			g.enemies[i].xDirection = 1
-		} else if moveLeft {
-			g.enemies[i].xDirection = -1
+		if g.enemies[i].state == alive {
+			if moveRight {
+				g.enemies[i].xDirection = 1
+			} else if moveLeft {
+				g.enemies[i].xDirection = -1
+			}
+			g.enemies[i].x += float64(g.enemies[i].xDirection)
 		}
-		g.enemies[i].x += float64(g.enemies[i].xDirection)
 	}
 }
 
 func moveBullet(g *Game) {
-	if g.playerBullet.position.Y != -1 {
+	if g.playerBullet.isActive {
 		g.playerBullet.position.Y += float64(g.playerBullet.speed * g.playerBullet.direction)
 	}
 }
@@ -149,7 +156,7 @@ func renderBunkerImages(screen *ebiten.Image, neonGreen color.RGBA) {
 }
 
 func renderBullets(g *Game, screen *ebiten.Image) {
-	if g.playerBullet.position.X != -1 {
+	if g.playerBullet.isActive {
 		for _, rect := range sprites.GetPlayerBulletRectangles() {
 			ebitenutil.DrawRect(screen, rect.Position.X+g.playerBullet.position.X, rect.Position.Y+g.playerBullet.position.Y,
 				rect.Width, rect.Height, rect.Color)
@@ -178,17 +185,41 @@ func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (
 
 func renderEnemies(g *Game, screen *ebiten.Image) {
 	for _, enemy := range g.enemies {
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(enemy.scale, enemy.scale)
-		opts.GeoM.Translate(enemy.x, enemy.y)
-		screen.DrawImage(enemy.img, opts)
+		if enemy.state == alive {
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Scale(enemy.scale, enemy.scale)
+			opts.GeoM.Translate(enemy.x, enemy.y)
+			screen.DrawImage(enemy.img, opts)
+		}
 	}
 }
 
 func detectCollision(g *Game) {
-	//var enemyCollisionLocations = []models.Position
-	//for _, enemy := range g.enemies{
-	//	for _,
+	for i, enemy := range g.enemies {
+		if enemy.state == alive {
+			var enemyRightBound = enemy.x + float64(enemy.img.Bounds().Dx())*enemy.scale
+			var enemyBottonBound = enemy.y + float64(enemy.img.Bounds().Dy())*enemy.scale
+			var enemyTopBound = enemy.y
+			for x := int(math.Floor(enemy.x)); x <= int(math.Ceil(enemyRightBound)); x++ {
+				if g.playerBullet.position.Y <= enemyBottonBound &&
+					g.playerBullet.position.X == float64(x) && g.playerBullet.position.Y >= enemyTopBound {
+					g.playerBullet.isActive = false
+					g.enemies[i].state = dead
+				}
+			}
+		}
+	}
+
+	if g.playerBullet.position.Y <= 5 {
+		g.playerBullet.isActive = false
+	}
+
+	//for _, enemyCollisionLocation := range enemyCollisionLocations {
+	//	if g.playerBullet.position.Y <= enemyCollisionLocation.Y &&
+	//		g.playerBullet.position.X == enemyCollisionLocation.X {
+	//		g.playerBullet.position.X = -1
+	//		g.playerBullet.position.Y = -1
+	//	}
 	//}
 }
 
@@ -298,6 +329,7 @@ func main() {
 			},
 			direction: -1,
 			speed:     3,
+			isActive:  false,
 		},
 		enemies: allEnemies,
 	}
