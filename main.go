@@ -1,7 +1,7 @@
 package main
 
 import (
-	//"fmt"
+	"fmt"
 	"github.com/akshayxml/spaders/lib/sprites"
 	"github.com/akshayxml/spaders/models"
 	"github.com/akshayxml/spaders/models/EntityState"
@@ -12,7 +12,6 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -42,11 +41,12 @@ const (
 )
 
 type Game struct {
-	player       *models.Player
-	enemies      []models.Enemy
-	playerBullet *bullet
-	score        int
-	enemyBullets []bullet
+	player        *models.Player
+	enemies       []models.Enemy
+	playerBullet  *bullet
+	score         int
+	enemyBullets  []bullet
+	bunkerSprites []models.Rectangle
 }
 
 type bullet struct {
@@ -118,7 +118,7 @@ func (g *Game) Update() error {
 			var enemyHeight = g.enemies[enemyNumber].GetEnemyHeight()
 			var bullet = bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
 				Y: g.enemies[enemyNumber].Position.Y + enemyHeight/2},
-				1, 2, true}
+				1, 1, true}
 			g.enemyBullets = append(g.enemyBullets, bullet)
 			bullet.fire()
 		}
@@ -144,23 +144,10 @@ func renderPlayerImages(g *Game, screen *ebiten.Image) {
 	}
 }
 
-func renderBunkerImages(screen *ebiten.Image, neonGreen color.RGBA) {
-	var imgWidth float64 = 0
-	for _, rect := range sprites.GetBunkerRectangles() {
-		imgWidth += rect.Width
-	}
-	bunkerPositions := []struct{ x, y float64 }{
-		{float64(windowWidth/5 - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(2*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(3*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(4*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-	}
-
-	for i := range bunkerPositions {
-		for _, rect := range sprites.GetBunkerRectangles() {
-			ebitenutil.DrawRect(screen, rect.Position.X+bunkerPositions[i].x, rect.Position.Y+bunkerPositions[i].y,
-				rect.Width, rect.Height, rect.Color)
-		}
+func renderBunkerImages(g *Game, screen *ebiten.Image, neonGreen color.RGBA) {
+	for _, bunkerSprite := range g.bunkerSprites {
+		ebitenutil.DrawRect(screen, bunkerSprite.Position.X, bunkerSprite.Position.Y,
+			bunkerSprite.Width, bunkerSprite.Height, bunkerSprite.Color)
 	}
 }
 
@@ -209,18 +196,38 @@ func renderEnemies(g *Game, screen *ebiten.Image) {
 	}
 }
 
+func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bulletPosition models.Position) bool {
+	return bulletPosition.X >= leftEdge && bulletPosition.X <= rightEdge &&
+		bulletPosition.Y <= bottomEdge && bulletPosition.Y >= topEdge
+}
+
 func detectCollision(g *Game) {
 	for i, enemy := range g.enemies {
 		if enemy.State == EntityState.Alive && g.playerBullet.isActive {
-			var enemyRightBound = enemy.Position.X + float64(enemy.Img.Bounds().Dx())*enemy.Scale
-			var enemyBottonBound = enemy.Position.Y + float64(enemy.Img.Bounds().Dy())*enemy.Scale
-			var enemyTopBound = enemy.Position.Y
-			for x := int(math.Floor(enemy.Position.X)); x <= int(math.Ceil(enemyRightBound)); x++ {
-				if g.playerBullet.position.Y <= enemyBottonBound &&
-					g.playerBullet.position.X == float64(x) && g.playerBullet.position.Y >= enemyTopBound {
+			var enemyLeftEdge = enemy.Position.X
+			var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
+			var enemyTopEdge = enemy.Position.Y
+			var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
+			if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.playerBullet.position) {
+				g.playerBullet.isActive = false
+				g.enemies[i].State = EntityState.Dead
+				g.score++
+			}
+		}
+	}
+
+	for i := range g.bunkerSprites {
+		if g.bunkerSprites[i].Width > 0 {
+			if g.playerBullet.isActive {
+				var bunkerSpriteLeft = g.bunkerSprites[i].Position.X
+				var bunkerSpriteRight = g.bunkerSprites[i].Position.X + g.bunkerSprites[i].Width
+				var bunkerSpriteTop = g.bunkerSprites[i].Position.Y
+				var bunkerSpriteBottom = g.bunkerSprites[i].Position.Y + g.bunkerSprites[i].Height
+				//println(int(bunkerSpriteLeft))
+				//println(int(bunkerSpriteRight))
+				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.playerBullet.position) {
+					g.bunkerSprites[i].Width = 0
 					g.playerBullet.isActive = false
-					g.enemies[i].State = EntityState.Dead
-					g.score++
 				}
 			}
 		}
@@ -266,7 +273,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	renderPlayerImages(g, screen)
 	renderEnemies(g, screen)
 	renderBullets(g, screen)
-	renderBunkerImages(screen, neonGreen)
+	renderBunkerImages(g, screen, neonGreen)
 
 	vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
 		float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
@@ -307,6 +314,7 @@ func init() {
 }
 
 func main() {
+	fmt.Println("SPADERS")
 	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
 	ebiten.SetWindowTitle("Spaders")
 
@@ -322,6 +330,25 @@ func main() {
 	enemyYPos += yGap
 	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.6)
 	allEnemies = append(allEnemies, enemies[:]...)
+
+	var imgWidth float64 = 0
+	for _, rect := range sprites.GetBunkerRectangles() {
+		imgWidth += rect.Width
+	}
+	bunkerPositions := []struct{ x, y float64 }{
+		{float64(windowWidth/5 - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(2*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(3*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(4*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+	}
+	var bunkerSprites = []models.Rectangle{}
+	for i := range bunkerPositions {
+		for _, bunkerSprite := range sprites.GetBunkerRectangles() {
+			bunkerSprite.Position.X += bunkerPositions[i].x
+			bunkerSprite.Position.Y += bunkerPositions[i].y
+			bunkerSprites = append(bunkerSprites, bunkerSprite)
+		}
+	}
 
 	g := &Game{
 		player: &models.Player{
@@ -341,8 +368,9 @@ func main() {
 			speed:     3,
 			isActive:  false,
 		},
-		enemies: allEnemies,
-		score:   0,
+		enemies:       allEnemies,
+		score:         0,
+		bunkerSprites: bunkerSprites,
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
