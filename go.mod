@@ -1,4 +1,4 @@
-module akshayxml/spaders
+module github.com/akshayxml/spaders
 
 go 1.21.6
 
