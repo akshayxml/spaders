@@ -33,7 +33,6 @@ const (
 	enemyImg2Location string  = "./assets/enemyTwo.png"
 	enemyImg3Location string  = "./assets/enemyThree.png"
 	normalFontSize    float64 = 18
-	bigFontSize       float64 = 48
 	windowWidth       float64 = 640
 	windowHeight      float64 = 480
 	leftBoundary              = 50
@@ -41,25 +40,12 @@ const (
 )
 
 type Game struct {
-	player        *models.Player
-	enemies       []models.Enemy
-	playerBullet  *bullet
-	score         int
-	enemyBullets  []bullet
-	bunkerSprites []models.Rectangle
-}
-
-type bullet struct {
-	position  models.Position
-	direction int
-	speed     int
-	isActive  bool
-}
-
-func (b *bullet) fire() {
-	if b.isActive == false {
-		b.isActive = true
-	}
+	player           *models.Player
+	enemies          []models.Enemy
+	score            int
+	enemyBullets     []models.Bullet
+	enemyBulletCount int
+	bunkerSprites    []models.Rectangle
 }
 
 func moveEnemySideways(g *Game) {
@@ -87,13 +73,22 @@ func moveEnemySideways(g *Game) {
 }
 
 func moveBullets(g *Game) {
-	if g.playerBullet.isActive {
-		g.playerBullet.position.Y += float64(g.playerBullet.speed * g.playerBullet.direction)
+	if g.player.Bullet.IsActive {
+		g.player.Bullet.Position.Y += float64(g.player.Bullet.Speed * g.player.Bullet.Direction)
 	}
 
-	for i := range g.enemyBullets {
-		g.enemyBullets[i].position.Y += float64(g.enemyBullets[i].speed * g.enemyBullets[i].direction)
+	for i := 0; i < g.enemyBulletCount; i++ {
+		g.enemyBullets[i].Position.Y += float64(g.enemyBullets[i].Speed * g.enemyBullets[i].Direction)
 	}
+}
+
+func (g *Game) addEnemyBullet(bullet models.Bullet) {
+	if g.enemyBulletCount < len(g.enemyBullets) {
+		g.enemyBullets[g.enemyBulletCount] = bullet
+	} else {
+		g.enemyBullets = append(g.enemyBullets, bullet)
+	}
+	g.enemyBulletCount++
 }
 
 func (g *Game) Update() error {
@@ -104,9 +99,9 @@ func (g *Game) Update() error {
 		g.player.MoveRight(rightBoundary)
 	}
 	moveEnemySideways(g)
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.playerBullet.isActive {
-		g.playerBullet.position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
-		g.playerBullet.fire()
+	if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive {
+		g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+		g.player.Bullet.Fire()
 	}
 	moveBullets(g)
 
@@ -116,11 +111,11 @@ func (g *Game) Update() error {
 		if g.enemies[enemyNumber].State == EntityState.Alive {
 			var enemyWidth = g.enemies[enemyNumber].GetEnemyWidth()
 			var enemyHeight = g.enemies[enemyNumber].GetEnemyHeight()
-			var bullet = bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
+			var bullet = models.Bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
 				Y: g.enemies[enemyNumber].Position.Y + enemyHeight/2},
 				1, 1, true}
-			g.enemyBullets = append(g.enemyBullets, bullet)
-			bullet.fire()
+			g.addEnemyBullet(bullet)
+			bullet.Fire()
 		}
 	}
 	return nil
@@ -152,15 +147,15 @@ func renderBunkerImages(g *Game, screen *ebiten.Image, neonGreen color.RGBA) {
 }
 
 func renderBullets(g *Game, screen *ebiten.Image) {
-	if g.playerBullet.isActive {
+	if g.player.Bullet.IsActive {
 		for _, rect := range sprites.GetPlayerBulletRectangles() {
-			ebitenutil.DrawRect(screen, rect.Position.X+g.playerBullet.position.X, rect.Position.Y+g.playerBullet.position.Y,
+			ebitenutil.DrawRect(screen, rect.Position.X+g.player.Bullet.Position.X, rect.Position.Y+g.player.Bullet.Position.Y,
 				rect.Width, rect.Height, rect.Color)
 		}
 	}
-	for _, enemyBullet := range g.enemyBullets {
+	for i := 0; i < g.enemyBulletCount; i++ {
 		for _, rect := range sprites.GetEnemyBulletRectangles() {
-			ebitenutil.DrawRect(screen, rect.Position.X+enemyBullet.position.X, rect.Position.Y+enemyBullet.position.Y,
+			ebitenutil.DrawRect(screen, rect.Position.X+g.enemyBullets[i].Position.X, rect.Position.Y+g.enemyBullets[i].Position.Y,
 				rect.Width, rect.Height, rect.Color)
 		}
 	}
@@ -203,13 +198,13 @@ func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bulletPositio
 
 func detectCollision(g *Game) {
 	for i, enemy := range g.enemies {
-		if enemy.State == EntityState.Alive && g.playerBullet.isActive {
+		if enemy.State == EntityState.Alive && g.player.Bullet.IsActive {
 			var enemyLeftEdge = enemy.Position.X
 			var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
 			var enemyTopEdge = enemy.Position.Y
 			var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
-			if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.playerBullet.position) {
-				g.playerBullet.isActive = false
+			if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet.Position) {
+				g.player.Bullet.IsActive = false
 				g.enemies[i].State = EntityState.Dead
 				g.score++
 			}
@@ -218,23 +213,27 @@ func detectCollision(g *Game) {
 
 	for i := range g.bunkerSprites {
 		if g.bunkerSprites[i].Width > 0 {
-			if g.playerBullet.isActive {
+			if g.player.Bullet.IsActive {
 				var bunkerSpriteLeft = g.bunkerSprites[i].Position.X
 				var bunkerSpriteRight = g.bunkerSprites[i].Position.X + g.bunkerSprites[i].Width
 				var bunkerSpriteTop = g.bunkerSprites[i].Position.Y
 				var bunkerSpriteBottom = g.bunkerSprites[i].Position.Y + g.bunkerSprites[i].Height
 				//println(int(bunkerSpriteLeft))
 				//println(int(bunkerSpriteRight))
-				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.playerBullet.position) {
+				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.player.Bullet.Position) {
 					g.bunkerSprites[i].Width = 0
-					g.playerBullet.isActive = false
+					g.player.Bullet.IsActive = false
 				}
 			}
 		}
 	}
 
-	if g.playerBullet.position.Y <= 5 {
-		g.playerBullet.isActive = false
+	for i := 0; i < g.enemyBulletCount; i++ {
+
+	}
+
+	if g.player.Bullet.Position.Y <= 5 {
+		g.player.Bullet.IsActive = false
 	}
 }
 
@@ -358,19 +357,20 @@ func main() {
 			},
 			Lives: 3,
 			Speed: 1.5,
-		},
-		playerBullet: &bullet{
-			position: models.Position{
-				X: -1,
-				Y: -1,
+			Bullet: models.Bullet{
+				Position: models.Position{
+					X: -1,
+					Y: -1,
+				},
+				Direction: -1,
+				Speed:     3,
+				IsActive:  false,
 			},
-			direction: -1,
-			speed:     3,
-			isActive:  false,
 		},
-		enemies:       allEnemies,
-		score:         0,
-		bunkerSprites: bunkerSprites,
+		enemies:          allEnemies,
+		score:            0,
+		bunkerSprites:    bunkerSprites,
+		enemyBulletCount: 0,
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)

@@ -4,6 +4,7 @@ type Player struct {
 	Position Position
 	Lives    int
 	Speed    float64
+	Bullet   Bullet
 }
 
 func (p *Player) MoveLeft() {
