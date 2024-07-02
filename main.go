@@ -91,6 +91,11 @@ func (g *Game) addEnemyBullet(bullet models.Bullet) {
 	g.enemyBulletCount++
 }
 
+func (g *Game) removeEnemyBullet(bulletIndex int) {
+	g.enemyBullets[bulletIndex], g.enemyBullets[g.enemyBulletCount-1] = g.enemyBullets[g.enemyBulletCount-1], g.enemyBullets[bulletIndex]
+	g.enemyBulletCount--
+}
+
 func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
 		g.player.MoveLeft()
@@ -197,43 +202,80 @@ func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bulletPositio
 }
 
 func detectCollision(g *Game) {
-	for i, enemy := range g.enemies {
-		if enemy.State == EntityState.Alive && g.player.Bullet.IsActive {
-			var enemyLeftEdge = enemy.Position.X
-			var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
-			var enemyTopEdge = enemy.Position.Y
-			var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
-			if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet.Position) {
-				g.player.Bullet.IsActive = false
-				g.enemies[i].State = EntityState.Dead
-				g.score++
-			}
-		}
-	}
 
-	for i := range g.bunkerSprites {
-		if g.bunkerSprites[i].Width > 0 {
-			if g.player.Bullet.IsActive {
+	if g.player.Bullet.IsActive {
+		for i := range g.bunkerSprites {
+			if g.bunkerSprites[i].Height > 0 {
 				var bunkerSpriteLeft = g.bunkerSprites[i].Position.X
 				var bunkerSpriteRight = g.bunkerSprites[i].Position.X + g.bunkerSprites[i].Width
 				var bunkerSpriteTop = g.bunkerSprites[i].Position.Y
 				var bunkerSpriteBottom = g.bunkerSprites[i].Position.Y + g.bunkerSprites[i].Height
-				//println(int(bunkerSpriteLeft))
-				//println(int(bunkerSpriteRight))
 				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.player.Bullet.Position) {
-					g.bunkerSprites[i].Width = 0
+					g.bunkerSprites[i].Height -= sprites.GetBunkerRectangles()[0].Height
 					g.player.Bullet.IsActive = false
 				}
 			}
 		}
+
+		for i, enemy := range g.enemies {
+			if enemy.State == EntityState.Alive {
+				var enemyLeftEdge = enemy.Position.X
+				var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
+				var enemyTopEdge = enemy.Position.Y
+				var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
+				if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet.Position) {
+					g.player.Bullet.IsActive = false
+					g.enemies[i].State = EntityState.Dead
+					g.score++
+				}
+			}
+		}
+
+		if g.player.Bullet.Position.Y <= 5 {
+			g.player.Bullet.IsActive = false
+		}
 	}
 
 	for i := 0; i < g.enemyBulletCount; i++ {
+		if g.enemyBullets[i].IsActive {
+			for j := range g.bunkerSprites {
+				if g.bunkerSprites[j].Height > 0 {
+					var bunkerSpriteLeft = g.bunkerSprites[j].Position.X
+					var bunkerSpriteRight = g.bunkerSprites[j].Position.X + g.bunkerSprites[j].Width
+					var bunkerSpriteTop = g.bunkerSprites[j].Position.Y
+					var bunkerSpriteBottom = g.bunkerSprites[j].Position.Y + g.bunkerSprites[j].Height
+					if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.enemyBullets[i].Position) {
+						g.bunkerSprites[j].Height -= sprites.GetBunkerRectangles()[0].Height
+						g.bunkerSprites[j].Position.Y += sprites.GetBunkerRectangles()[0].Height
+						g.enemyBullets[i].IsActive = false
+					}
+				}
+			}
 
+			for _, playerSprite := range sprites.GetPlayerRectangles() {
+				var playerLeftEdge = g.player.Position.X + playerSprite.Position.X
+				var playerRightEdge = g.player.Position.X + playerSprite.Position.X + playerSprite.Width
+				var playerTopEdge = g.player.Position.Y + playerSprite.Position.Y
+				var playerBottomEdge = g.player.Position.Y + playerSprite.Position.Y + playerSprite.Height
+				if hasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge, g.enemyBullets[i].Position) {
+					g.player.Lives--
+					g.enemyBullets[i].IsActive = false
+				}
+			}
+
+			if g.enemyBullets[i].Position.Y >= windowHeight-20 {
+				g.enemyBullets[i].IsActive = false
+			}
+		}
 	}
 
-	if g.player.Bullet.Position.Y <= 5 {
-		g.player.Bullet.IsActive = false
+	var i = 0
+	for i < g.enemyBulletCount {
+		if !g.enemyBullets[i].IsActive {
+			g.removeEnemyBullet(i)
+		} else {
+			i++
+		}
 	}
 }
 
@@ -269,9 +311,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}, textOp)
 
 	detectCollision(g)
+	renderBullets(g, screen)
 	renderPlayerImages(g, screen)
 	renderEnemies(g, screen)
-	renderBullets(g, screen)
 	renderBunkerImages(g, screen, neonGreen)
 
 	vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
