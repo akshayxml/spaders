@@ -5,6 +5,7 @@ type Bullet struct {
 	Direction int
 	Speed     int
 	IsActive  bool
+	Height    float64
 }
 
 func (b *Bullet) Fire() {

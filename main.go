@@ -12,6 +12,7 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -106,6 +107,7 @@ func (g *Game) Update() error {
 	moveEnemySideways(g)
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive {
 		g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+		g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
 		g.player.Bullet.Fire()
 	}
 	moveBullets(g)
@@ -118,7 +120,7 @@ func (g *Game) Update() error {
 			var enemyHeight = g.enemies[enemyNumber].GetEnemyHeight()
 			var bullet = models.Bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
 				Y: g.enemies[enemyNumber].Position.Y + enemyHeight/2},
-				1, 1, true}
+				1, 1, true, getSpritesHeight(sprites.GetEnemyBulletRectangles())}
 			g.addEnemyBullet(bullet)
 			bullet.Fire()
 		}
@@ -166,6 +168,22 @@ func renderBullets(g *Game, screen *ebiten.Image) {
 	}
 }
 
+func getSpritesWidth(sprites []models.Rectangle) float64 {
+	var width = 0.0
+	for _, sprite := range sprites {
+		width += sprite.Width
+	}
+	return width
+}
+
+func getSpritesHeight(sprites []models.Rectangle) float64 {
+	var height = 0.0
+	for _, sprite := range sprites {
+		height += sprite.Width
+	}
+	return height
+}
+
 func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (float64, []models.Enemy) {
 	var cols = 10
 	var imgWidth float64 = float64(img.Bounds().Dx()) * scale
@@ -196,9 +214,22 @@ func renderEnemies(g *Game, screen *ebiten.Image) {
 	}
 }
 
-func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bulletPosition models.Position) bool {
-	return bulletPosition.X >= leftEdge && bulletPosition.X <= rightEdge &&
-		bulletPosition.Y <= bottomEdge && bulletPosition.Y >= topEdge
+func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bullet models.Bullet) bool {
+	var bulletPositionY = bullet.Position.Y
+	if bullet.Direction > 0 {
+		bulletPositionY += bullet.Height
+	}
+	return bullet.Position.X >= leftEdge && bullet.Position.X <= rightEdge &&
+		bulletPositionY <= bottomEdge && bulletPositionY >= topEdge
+}
+
+func hasCollidedBullets(playerBullet models.Bullet, enemyBullet models.Bullet) bool {
+	var playerBulletX = playerBullet.Position.X
+	var enemyBulletX = enemyBullet.Position.X
+	var playerBulletTopEdge = int(playerBullet.Position.Y)
+	var enemyBulletTopEdge = int(enemyBullet.Position.Y)
+	var enemyBulletBottomEdge = int(enemyBullet.Position.Y + enemyBullet.Height)
+	return math.Abs(playerBulletX-enemyBulletX) <= 4 && playerBulletTopEdge <= enemyBulletBottomEdge && playerBulletTopEdge >= enemyBulletTopEdge
 }
 
 func detectCollision(g *Game) {
@@ -210,7 +241,7 @@ func detectCollision(g *Game) {
 				var bunkerSpriteRight = g.bunkerSprites[i].Position.X + g.bunkerSprites[i].Width
 				var bunkerSpriteTop = g.bunkerSprites[i].Position.Y
 				var bunkerSpriteBottom = g.bunkerSprites[i].Position.Y + g.bunkerSprites[i].Height
-				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.player.Bullet.Position) {
+				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.player.Bullet) {
 					g.bunkerSprites[i].Height -= sprites.GetBunkerRectangles()[0].Height
 					g.player.Bullet.IsActive = false
 				}
@@ -223,7 +254,7 @@ func detectCollision(g *Game) {
 				var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
 				var enemyTopEdge = enemy.Position.Y
 				var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
-				if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet.Position) {
+				if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet) {
 					g.player.Bullet.IsActive = false
 					g.enemies[i].State = EntityState.Dead
 					g.score++
@@ -244,7 +275,7 @@ func detectCollision(g *Game) {
 					var bunkerSpriteRight = g.bunkerSprites[j].Position.X + g.bunkerSprites[j].Width
 					var bunkerSpriteTop = g.bunkerSprites[j].Position.Y
 					var bunkerSpriteBottom = g.bunkerSprites[j].Position.Y + g.bunkerSprites[j].Height
-					if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.enemyBullets[i].Position) {
+					if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.enemyBullets[i]) {
 						g.bunkerSprites[j].Height -= sprites.GetBunkerRectangles()[0].Height
 						g.bunkerSprites[j].Position.Y += sprites.GetBunkerRectangles()[0].Height
 						g.enemyBullets[i].IsActive = false
@@ -257,8 +288,16 @@ func detectCollision(g *Game) {
 				var playerRightEdge = g.player.Position.X + playerSprite.Position.X + playerSprite.Width
 				var playerTopEdge = g.player.Position.Y + playerSprite.Position.Y
 				var playerBottomEdge = g.player.Position.Y + playerSprite.Position.Y + playerSprite.Height
-				if hasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge, g.enemyBullets[i].Position) {
+				if hasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge, g.enemyBullets[i]) {
 					g.player.Lives--
+					g.enemyBullets[i].IsActive = false
+				}
+			}
+
+			if g.player.Bullet.IsActive {
+				if hasCollidedBullets(g.player.Bullet, g.enemyBullets[i]) {
+					fmt.Println("collided")
+					g.player.Bullet.IsActive = false
 					g.enemyBullets[i].IsActive = false
 				}
 			}
