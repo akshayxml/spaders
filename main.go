@@ -117,11 +117,29 @@ func (g *Game) generateEnemyBullets() {
 	}
 }
 
+func (g *Game) reset() {
+	g.screen = Screen.Play
+	g.playStartTime = time.Now().UnixMilli()
+	g.score = 0
+	g.player.Lives = 3
+	g.bunkerSprites = setupBunkers()
+	g.enemies = setupEnemies()
+	g.enemyBulletCount = 0
+	g.player.Bullet.IsActive = false
+	g.player.Position = models.Position{
+		X: (windowWidth / 2),
+		Y: windowHeight - 40,
+	}
+	g.player.Bullet = models.Bullet{
+		Direction: -1,
+		Speed:     3,
+	}
+}
+
 func (g *Game) Update() error {
 	if g.screen == Screen.Menu || g.screen == Screen.GameOver {
 		if ebiten.IsKeyPressed(ebiten.KeySpace) {
-			g.screen = Screen.Play
-			g.playStartTime = time.Now().UnixMilli()
+			g.reset()
 		}
 	} else if g.screen == Screen.Play {
 		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
@@ -273,7 +291,7 @@ func detectCollision(g *Game) {
 				if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet) {
 					g.player.Bullet.IsActive = false
 					g.enemies[i].State = EntityState.Dead
-					g.score++
+					g.score += 5
 				}
 			}
 		}
@@ -315,9 +333,9 @@ func detectCollision(g *Game) {
 
 			if g.player.Bullet.IsActive {
 				if hasCollidedBullets(g.player.Bullet, g.enemyBullets[i]) {
-					fmt.Println("collided")
 					g.player.Bullet.IsActive = false
 					g.enemyBullets[i].IsActive = false
+					g.score += 3
 				}
 			}
 
@@ -483,11 +501,7 @@ func init() {
 	mplusFaceSource = s
 }
 
-func main() {
-	fmt.Println("SPADERS")
-	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
-	ebiten.SetWindowTitle("Spaders")
-
+func setupEnemies() []models.Enemy {
 	var allEnemies = []models.Enemy{}
 	var enemyYPos float64 = 60
 	var yGap, enemies = getEnemies(1, enemyYPos, enemyThreeImg, 0.5)
@@ -501,6 +515,10 @@ func main() {
 	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.6)
 	allEnemies = append(allEnemies, enemies[:]...)
 
+	return allEnemies
+}
+
+func setupBunkers() []models.Rectangle {
 	var imgWidth float64 = 0
 	for _, rect := range sprites.GetBunkerRectangles() {
 		imgWidth += rect.Width
@@ -520,29 +538,19 @@ func main() {
 		}
 	}
 
+	return bunkerSprites
+}
+
+func main() {
+	fmt.Println("SPADERS")
+	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
+	ebiten.SetWindowTitle("Spaders")
+
 	g := &Game{
 		player: &models.Player{
-			Position: models.Position{
-				X: float64(windowWidth / 2),
-				Y: float64(windowHeight - 40),
-			},
-			Lives: 3,
 			Speed: 1.5,
-			Bullet: models.Bullet{
-				Position: models.Position{
-					X: -1,
-					Y: -1,
-				},
-				Direction: -1,
-				Speed:     3,
-				IsActive:  false,
-			},
 		},
-		enemies:          allEnemies,
-		score:            0,
-		bunkerSprites:    bunkerSprites,
-		enemyBulletCount: 0,
-		screen:           Screen.Menu,
+		screen: Screen.Menu,
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
