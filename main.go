@@ -5,6 +5,7 @@ import (
 	"github.com/akshayxml/spaders/lib/sprites"
 	"github.com/akshayxml/spaders/models"
 	"github.com/akshayxml/spaders/models/EntityState"
+	"github.com/akshayxml/spaders/models/Screen"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -34,6 +35,7 @@ const (
 	enemyImg2Location string  = "./assets/enemyTwo.png"
 	enemyImg3Location string  = "./assets/enemyThree.png"
 	normalFontSize    float64 = 18
+	bigFontSize       float64 = 36
 	windowWidth       float64 = 640
 	windowHeight      float64 = 480
 	leftBoundary              = 50
@@ -47,9 +49,11 @@ type Game struct {
 	enemyBullets     []models.Bullet
 	enemyBulletCount int
 	bunkerSprites    []models.Rectangle
+	screen           Screen.Screen
+	playStartTime    int64
 }
 
-func moveEnemySideways(g *Game) {
+func (g *Game) moveEnemySideways() {
 	leftMostEnemy := windowWidth
 	rightMostEnemy := 0.0
 	for i := range g.enemies {
@@ -73,7 +77,7 @@ func moveEnemySideways(g *Game) {
 	}
 }
 
-func moveBullets(g *Game) {
+func (g *Game) moveBullets() {
 	if g.player.Bullet.IsActive {
 		g.player.Bullet.Position.Y += float64(g.player.Bullet.Speed * g.player.Bullet.Direction)
 	}
@@ -97,21 +101,7 @@ func (g *Game) removeEnemyBullet(bulletIndex int) {
 	g.enemyBulletCount--
 }
 
-func (g *Game) Update() error {
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		g.player.MoveLeft()
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		g.player.MoveRight(rightBoundary)
-	}
-	moveEnemySideways(g)
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive {
-		g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
-		g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
-		g.player.Bullet.Fire()
-	}
-	moveBullets(g)
-
+func (g *Game) generateEnemyBullets() {
 	rand.Seed(time.Now().UnixNano())
 	if rand.Intn(100) == 0 {
 		var enemyNumber = rand.Intn(len(g.enemies))
@@ -124,6 +114,32 @@ func (g *Game) Update() error {
 			g.addEnemyBullet(bullet)
 			bullet.Fire()
 		}
+	}
+}
+
+func (g *Game) Update() error {
+	if g.screen == Screen.Menu || g.screen == Screen.GameOver {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+			g.screen = Screen.Play
+			g.playStartTime = time.Now().UnixMilli()
+		}
+	} else if g.screen == Screen.Play {
+		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+			g.player.MoveLeft()
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+			g.player.MoveRight(rightBoundary)
+		}
+		currentTimestamp := time.Now().UnixMilli()
+		if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive && currentTimestamp > g.playStartTime+500 {
+			g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+			g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
+			g.player.Bullet.Fire()
+		}
+
+		g.moveEnemySideways()
+		g.generateEnemyBullets()
+		g.moveBullets()
 	}
 	return nil
 }
@@ -291,6 +307,9 @@ func detectCollision(g *Game) {
 				if hasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge, g.enemyBullets[i]) {
 					g.player.Lives--
 					g.enemyBullets[i].IsActive = false
+					if g.player.Lives == 0 {
+						g.screen = Screen.GameOver
+					}
 				}
 			}
 
@@ -316,6 +335,67 @@ func detectCollision(g *Game) {
 			i++
 		}
 	}
+}
+
+func (g *Game) DrawMenu(screen *ebiten.Image, neonGreen color.RGBA) {
+	msg := "SPADERS"
+	face := &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   bigFontSize,
+	}
+	textOp := &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2))
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	textOp.PrimaryAlign = text.AlignCenter
+	textOp.SecondaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
+	msg = "PRESS SPACE TO START"
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2+40))
+	textOp.ColorScale.ScaleWithColor(color.White)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+}
+
+func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
+	msg := "GAME OVER"
+	face := &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   bigFontSize,
+	}
+	textOp := &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2))
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	textOp.PrimaryAlign = text.AlignCenter
+	textOp.SecondaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
+	msg = "YOUR SCORE IS " + strconv.Itoa(g.score)
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2+40))
+	textOp.ColorScale.ScaleWithColor(color.White)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
+	msg = "PRESS SPACE TO REPLAY"
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2+80))
+	textOp.ColorScale.ScaleWithColor(color.White)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -348,6 +428,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		Source: mplusFaceSource,
 		Size:   normalFontSize,
 	}, textOp)
+
+	if g.screen == Screen.Menu {
+		g.DrawMenu(screen, neonGreen)
+		return
+	}
+
+	if g.screen == Screen.GameOver {
+		g.DrawGameOver(screen, neonGreen)
+		return
+	}
 
 	detectCollision(g)
 	renderBullets(g, screen)
@@ -452,6 +542,7 @@ func main() {
 		score:            0,
 		bunkerSprites:    bunkerSprites,
 		enemyBulletCount: 0,
+		screen:           Screen.Menu,
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
