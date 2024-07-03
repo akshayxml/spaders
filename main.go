@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/akshayxml/spaders/lib/sprites"
 	"github.com/akshayxml/spaders/models"
 	"github.com/akshayxml/spaders/models/EntityState"
 	"github.com/akshayxml/spaders/models/Screen"
+	"github.com/akshayxml/spaders/sprites"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -121,18 +121,21 @@ func (g *Game) reset() {
 	g.screen = Screen.Play
 	g.playStartTime = time.Now().UnixMilli()
 	g.score = 0
-	g.player.Lives = 3
 	g.bunkerSprites = setupBunkers()
 	g.enemies = setupEnemies()
 	g.enemyBulletCount = 0
-	g.player.Bullet.IsActive = false
-	g.player.Position = models.Position{
-		X: (windowWidth / 2),
-		Y: windowHeight - 40,
-	}
-	g.player.Bullet = models.Bullet{
-		Direction: -1,
-		Speed:     3,
+	g.player = &models.Player{
+		Position: models.Position{
+			X: (windowWidth / 2),
+			Y: windowHeight - 40,
+		},
+		Lives: 3,
+		Speed: 2.0,
+		Bullet: models.Bullet{
+			Direction: -1,
+			Speed:     3,
+			IsActive:  false,
+		},
 	}
 }
 
@@ -248,6 +251,46 @@ func renderEnemies(g *Game, screen *ebiten.Image) {
 	}
 }
 
+func setupEnemies() []models.Enemy {
+	var allEnemies = []models.Enemy{}
+	var enemyYPos float64 = 60
+	var yGap, enemies = getEnemies(1, enemyYPos, enemyThreeImg, 0.5)
+	allEnemies = append(allEnemies, enemies[:]...)
+
+	enemyYPos += yGap
+	yGap, enemies = getEnemies(2, enemyYPos, enemyTwoImg, 0.6)
+	allEnemies = append(allEnemies, enemies[:]...)
+
+	enemyYPos += yGap
+	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.6)
+	allEnemies = append(allEnemies, enemies[:]...)
+
+	return allEnemies
+}
+
+func setupBunkers() []models.Rectangle {
+	var imgWidth float64 = 0
+	for _, rect := range sprites.GetBunkerRectangles() {
+		imgWidth += rect.Width
+	}
+	bunkerPositions := []struct{ x, y float64 }{
+		{float64(windowWidth/5 - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(2*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(3*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+		{float64(4*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
+	}
+	var bunkerSprites = []models.Rectangle{}
+	for i := range bunkerPositions {
+		for _, bunkerSprite := range sprites.GetBunkerRectangles() {
+			bunkerSprite.Position.X += bunkerPositions[i].x
+			bunkerSprite.Position.Y += bunkerPositions[i].y
+			bunkerSprites = append(bunkerSprites, bunkerSprite)
+		}
+	}
+
+	return bunkerSprites
+}
+
 func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bullet models.Bullet) bool {
 	var bulletPositionY = bullet.Position.Y
 	if bullet.Direction > 0 {
@@ -267,7 +310,6 @@ func hasCollidedBullets(playerBullet models.Bullet, enemyBullet models.Bullet) b
 }
 
 func detectCollision(g *Game) {
-
 	if g.player.Bullet.IsActive {
 		for i := range g.bunkerSprites {
 			if g.bunkerSprites[i].Height > 0 {
@@ -449,22 +491,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if g.screen == Screen.Menu {
 		g.DrawMenu(screen, neonGreen)
-		return
-	}
-
-	if g.screen == Screen.GameOver {
+	} else if g.screen == Screen.GameOver {
 		g.DrawGameOver(screen, neonGreen)
 		return
+	} else {
+		detectCollision(g)
+		renderBullets(g, screen)
+		renderPlayerImages(g, screen)
+		renderEnemies(g, screen)
+		renderBunkerImages(g, screen, neonGreen)
+
+		vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
+			float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
 	}
-
-	detectCollision(g)
-	renderBullets(g, screen)
-	renderPlayerImages(g, screen)
-	renderEnemies(g, screen)
-	renderBunkerImages(g, screen, neonGreen)
-
-	vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
-		float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -501,55 +540,12 @@ func init() {
 	mplusFaceSource = s
 }
 
-func setupEnemies() []models.Enemy {
-	var allEnemies = []models.Enemy{}
-	var enemyYPos float64 = 60
-	var yGap, enemies = getEnemies(1, enemyYPos, enemyThreeImg, 0.5)
-	allEnemies = append(allEnemies, enemies[:]...)
-
-	enemyYPos += yGap
-	yGap, enemies = getEnemies(2, enemyYPos, enemyTwoImg, 0.6)
-	allEnemies = append(allEnemies, enemies[:]...)
-
-	enemyYPos += yGap
-	yGap, enemies = getEnemies(2, enemyYPos, enemyOneImg, 0.6)
-	allEnemies = append(allEnemies, enemies[:]...)
-
-	return allEnemies
-}
-
-func setupBunkers() []models.Rectangle {
-	var imgWidth float64 = 0
-	for _, rect := range sprites.GetBunkerRectangles() {
-		imgWidth += rect.Width
-	}
-	bunkerPositions := []struct{ x, y float64 }{
-		{float64(windowWidth/5 - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(2*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(3*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-		{float64(4*(windowWidth/5) - float64(imgWidth/2)), float64(windowHeight - 100)},
-	}
-	var bunkerSprites = []models.Rectangle{}
-	for i := range bunkerPositions {
-		for _, bunkerSprite := range sprites.GetBunkerRectangles() {
-			bunkerSprite.Position.X += bunkerPositions[i].x
-			bunkerSprite.Position.Y += bunkerPositions[i].y
-			bunkerSprites = append(bunkerSprites, bunkerSprite)
-		}
-	}
-
-	return bunkerSprites
-}
-
 func main() {
 	fmt.Println("SPADERS")
 	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
 	ebiten.SetWindowTitle("Spaders")
 
 	g := &Game{
-		player: &models.Player{
-			Speed: 1.5,
-		},
 		screen: Screen.Menu,
 	}
 	if err := ebiten.RunGame(g); err != nil {
