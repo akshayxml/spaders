@@ -7,11 +7,14 @@ import (
 	"github.com/akshayxml/spaders/models/Screen"
 	"github.com/akshayxml/spaders/sprites"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"image/color"
 	_ "image/jpeg"
+	"io"
 	"log"
 	"math"
 	"math/rand"
@@ -26,6 +29,8 @@ var (
 	enemyOneImg     *ebiten.Image
 	enemyTwoImg     *ebiten.Image
 	enemyThreeImg   *ebiten.Image
+	audioContext    *audio.Context
+	player          *audio.Player
 )
 
 const (
@@ -34,12 +39,14 @@ const (
 	enemyImg1Location string  = "./assets/enemyOne.png"
 	enemyImg2Location string  = "./assets/enemyTwo.png"
 	enemyImg3Location string  = "./assets/enemyThree.png"
+	bgAudioLocation   string  = "./assets/audio.mp3"
 	normalFontSize    float64 = 18
 	bigFontSize       float64 = 36
 	windowWidth       float64 = 640
 	windowHeight      float64 = 480
 	leftBoundary              = 50
 	rightBoundary             = windowWidth - 80
+	sampleRate                = 44100
 )
 
 type Game struct {
@@ -572,10 +579,44 @@ func init() {
 	mplusFaceSource = s
 }
 
+func playAudio(f io.Reader) error {
+	audioContext = audio.NewContext(sampleRate)
+
+	d, err := mp3.DecodeWithSampleRate(sampleRate, f)
+	if err != nil {
+		return err
+	}
+
+	infiniteLoop := audio.NewInfiniteLoop(d, d.Length())
+	player, err := audioContext.NewPlayer(infiniteLoop)
+	if err != nil {
+		return err
+	}
+
+	if err != nil {
+		fmt.Println("agb")
+		log.Fatal(err)
+	}
+	player.Play()
+
+	return nil
+}
+
 func main() {
 	fmt.Println("SPADERS")
 	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
 	ebiten.SetWindowTitle("Spaders")
+
+	var err error
+	f, err := os.Open(bgAudioLocation)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	err = playAudio(f)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	g := &Game{
 		screen: Screen.Menu,
