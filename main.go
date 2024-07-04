@@ -16,7 +16,6 @@ import (
 	_ "image/jpeg"
 	"io"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -60,6 +59,7 @@ type Game struct {
 	screen           Screen.Screen
 	playStartTime    int64
 	enemyFireRate    int
+	difficulty       int
 }
 
 func (g *Game) moveEnemySideways() {
@@ -128,61 +128,25 @@ func (g *Game) generateEnemyBullets() {
 
 func (g *Game) updateDifficulty(currentTimestamp int64) {
 	var elapsedTime = currentTimestamp - g.playStartTime
+	var baseHorizontalSpeedLimit = 2.0
+	var baseHorizontalSpeedChangeIntervalMs = 10000
+	var baseVerticalMoveIntervalMs = 15000
+	var baseFireRateLimit = 10
+	var baseFireRateLimitChangeIntervalMs = 10000
+
 	for i, _ := range g.enemies {
-		g.enemies[i].HorizontalSpeed = min(3.0, 1+float64(elapsedTime)/(1000*10*10))
-	}
-	g.enemyFireRate = min(10, int(elapsedTime/(1000*15)))
-}
+		var horizontalSpeedChangeIntervalMs = int64(baseHorizontalSpeedChangeIntervalMs - ((baseHorizontalSpeedChangeIntervalMs / 3) * (g.difficulty - 1)))
+		var horizontalSpeedLimit = baseHorizontalSpeedLimit + float64(g.difficulty/2)
+		g.enemies[i].HorizontalSpeed = min(horizontalSpeedLimit, 1+float64(elapsedTime)/float64(horizontalSpeedChangeIntervalMs*10))
 
-func (g *Game) reset() {
-	g.screen = Screen.Play
-	g.playStartTime = time.Now().UnixMilli()
-	g.score = 0
-	g.bunkerSprites = setupBunkers()
-	g.enemies = setupEnemies()
-	g.enemyBulletCount = 0
-	g.enemyFireRate = 1
-	g.enemyCount = len(g.enemies)
-	g.player = &models.Player{
-		Position: models.Position{
-			X: (windowWidth / 2),
-			Y: windowHeight - 40,
-		},
-		Lives: 3,
-		Speed: 2.0,
-		Bullet: models.Bullet{
-			Direction: -1,
-			Speed:     3,
-			IsActive:  false,
-		},
+		var verticalMoveIntervalMs = int64(baseVerticalMoveIntervalMs - ((baseVerticalMoveIntervalMs / 3) * (g.difficulty - 1)))
+		if elapsedTime >= verticalMoveIntervalMs && elapsedTime%verticalMoveIntervalMs <= 100 {
+			g.enemies[i].Position.Y++
+		}
 	}
-}
 
-func (g *Game) Update() error {
-	if g.screen == Screen.Menu || g.screen == Screen.GameOver {
-		if ebiten.IsKeyPressed(ebiten.KeySpace) {
-			g.reset()
-		}
-	} else if g.screen == Screen.Play {
-		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-			g.player.MoveLeft()
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-			g.player.MoveRight(rightBoundary)
-		}
-		currentTimestamp := time.Now().UnixMilli()
-		if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive && currentTimestamp > g.playStartTime+500 {
-			g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
-			g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
-			g.player.Bullet.Fire()
-		}
-
-		g.moveEnemySideways()
-		g.generateEnemyBullets()
-		g.moveBullets()
-		g.updateDifficulty(currentTimestamp)
-	}
-	return nil
+	var fireRateLimitChangeIntervalMs = int64(baseFireRateLimitChangeIntervalMs - ((baseFireRateLimitChangeIntervalMs / 3) * (g.difficulty - 1)))
+	g.enemyFireRate = min(baseFireRateLimit*g.difficulty, int(elapsedTime/fireRateLimitChangeIntervalMs))
 }
 
 func (g *Game) renderScore(screen *ebiten.Image, neonGreen color.RGBA) {
@@ -220,7 +184,7 @@ func (g *Game) renderLives(screen *ebiten.Image) {
 	}
 
 	for i := range playerImgPositions {
-		if i <= g.player.Lives {
+		if i < g.player.Lives {
 			for _, rect := range sprites.GetPlayerRectangles() {
 				ebitenutil.DrawRect(screen, rect.Position.X+playerImgPositions[i].x, rect.Position.Y+playerImgPositions[i].y,
 					rect.Width, rect.Height, rect.Color)
@@ -344,24 +308,6 @@ func setupBunkers() []models.Rectangle {
 	return bunkerSprites
 }
 
-func hasCollided(leftEdge, rightEdge, topEdge, bottomEdge float64, bullet models.Bullet) bool {
-	var bulletPositionY = bullet.Position.Y
-	if bullet.Direction > 0 {
-		bulletPositionY += bullet.Height
-	}
-	return bullet.Position.X >= leftEdge && bullet.Position.X <= rightEdge &&
-		bulletPositionY <= bottomEdge && bulletPositionY >= topEdge
-}
-
-func hasCollidedBullets(playerBullet models.Bullet, enemyBullet models.Bullet) bool {
-	var playerBulletX = playerBullet.Position.X
-	var enemyBulletX = enemyBullet.Position.X
-	var playerBulletTopEdge = int(playerBullet.Position.Y)
-	var enemyBulletTopEdge = int(enemyBullet.Position.Y)
-	var enemyBulletBottomEdge = int(enemyBullet.Position.Y + enemyBullet.Height)
-	return math.Abs(playerBulletX-enemyBulletX) <= 4 && playerBulletTopEdge <= enemyBulletBottomEdge && playerBulletTopEdge >= enemyBulletTopEdge
-}
-
 func (g *Game) detectCollision() {
 	if g.player.Bullet.IsActive {
 		for i := range g.bunkerSprites {
@@ -370,7 +316,7 @@ func (g *Game) detectCollision() {
 				var bunkerSpriteRight = g.bunkerSprites[i].Position.X + g.bunkerSprites[i].Width
 				var bunkerSpriteTop = g.bunkerSprites[i].Position.Y
 				var bunkerSpriteBottom = g.bunkerSprites[i].Position.Y + g.bunkerSprites[i].Height
-				if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.player.Bullet) {
+				if g.player.Bullet.HasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom) {
 					g.bunkerSprites[i].Height -= sprites.GetBunkerRectangles()[0].Height
 					g.player.Bullet.IsActive = false
 				}
@@ -383,7 +329,7 @@ func (g *Game) detectCollision() {
 				var enemyRightEdge = enemy.Position.X + enemy.GetEnemyWidth()
 				var enemyTopEdge = enemy.Position.Y
 				var enemyBottomEdge = enemy.Position.Y + enemy.GetEnemyHeight()
-				if hasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge, g.player.Bullet) {
+				if g.player.Bullet.HasCollided(enemyLeftEdge, enemyRightEdge, enemyTopEdge, enemyBottomEdge) {
 					g.player.Bullet.IsActive = false
 					g.enemies[i].State = EntityState.Dead
 					g.score += 5
@@ -408,7 +354,7 @@ func (g *Game) detectCollision() {
 					var bunkerSpriteRight = g.bunkerSprites[j].Position.X + g.bunkerSprites[j].Width
 					var bunkerSpriteTop = g.bunkerSprites[j].Position.Y
 					var bunkerSpriteBottom = g.bunkerSprites[j].Position.Y + g.bunkerSprites[j].Height
-					if hasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom, g.enemyBullets[i]) {
+					if g.enemyBullets[i].HasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom) {
 						g.bunkerSprites[j].Height -= sprites.GetBunkerRectangles()[0].Height
 						g.bunkerSprites[j].Position.Y += sprites.GetBunkerRectangles()[0].Height
 						g.enemyBullets[i].IsActive = false
@@ -421,7 +367,7 @@ func (g *Game) detectCollision() {
 				var playerRightEdge = g.player.Position.X + playerSprite.Position.X + playerSprite.Width
 				var playerTopEdge = g.player.Position.Y + playerSprite.Position.Y
 				var playerBottomEdge = g.player.Position.Y + playerSprite.Position.Y + playerSprite.Height
-				if hasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge, g.enemyBullets[i]) {
+				if g.enemyBullets[i].HasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge) {
 					g.player.Lives--
 					g.enemyBullets[i].IsActive = false
 					if g.player.Lives == 0 {
@@ -431,7 +377,7 @@ func (g *Game) detectCollision() {
 			}
 
 			if g.player.Bullet.IsActive {
-				if hasCollidedBullets(g.player.Bullet, g.enemyBullets[i]) {
+				if g.player.Bullet.HasCollidedBullets(g.enemyBullets[i]) {
 					g.player.Bullet.IsActive = false
 					g.enemyBullets[i].IsActive = false
 					g.score += 3
@@ -516,6 +462,58 @@ func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
 	textOp.ColorScale.ScaleWithColor(color.White)
 	textOp.PrimaryAlign = text.AlignCenter
 	text.Draw(screen, msg, face, textOp)
+}
+
+func (g *Game) reset() {
+	g.screen = Screen.Play
+	g.playStartTime = time.Now().UnixMilli()
+	g.score = 0
+	g.bunkerSprites = setupBunkers()
+	g.enemies = setupEnemies()
+	g.enemyBulletCount = 0
+	g.enemyFireRate = 1
+	g.enemyCount = len(g.enemies)
+	g.player = &models.Player{
+		Position: models.Position{
+			X: (windowWidth / 2),
+			Y: windowHeight - 40,
+		},
+		Lives: 3,
+		Speed: 2.0,
+		Bullet: models.Bullet{
+			Direction: -1,
+			Speed:     3,
+			IsActive:  false,
+		},
+	}
+	g.difficulty = 3
+}
+
+func (g *Game) Update() error {
+	if g.screen == Screen.Menu || g.screen == Screen.GameOver {
+		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+			g.reset()
+		}
+	} else if g.screen == Screen.Play {
+		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+			g.player.MoveLeft()
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+			g.player.MoveRight(rightBoundary)
+		}
+		currentTimestamp := time.Now().UnixMilli()
+		if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive && currentTimestamp > g.playStartTime+500 {
+			g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+			g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
+			g.player.Bullet.Fire()
+		}
+
+		g.moveEnemySideways()
+		g.generateEnemyBullets()
+		g.moveBullets()
+		g.updateDifficulty(currentTimestamp)
+	}
+	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -607,7 +605,6 @@ func main() {
 	ebiten.SetWindowSize(int(windowWidth), int(windowHeight))
 	ebiten.SetWindowTitle("Spaders")
 
-	var err error
 	f, err := os.Open(bgAudioLocation)
 	if err != nil {
 		log.Fatal(err)
@@ -618,10 +615,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	g := &Game{
-		screen: Screen.Menu,
+	g := &Game{}
+	g.player = &models.Player{
+		Lives: 3,
 	}
-	g.reset()
+	g.screen = Screen.Menu
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
