@@ -48,9 +48,11 @@ type Game struct {
 	score            int
 	enemyBullets     []models.Bullet
 	enemyBulletCount int
+	enemyCount       int
 	bunkerSprites    []models.Rectangle
 	screen           Screen.Screen
 	playStartTime    int64
+	enemyFireRate    int
 }
 
 func (g *Game) moveEnemySideways() {
@@ -103,7 +105,7 @@ func (g *Game) removeEnemyBullet(bulletIndex int) {
 
 func (g *Game) generateEnemyBullets() {
 	rand.Seed(time.Now().UnixNano())
-	if rand.Intn(100) == 0 {
+	if rand.Intn(100) <= g.enemyFireRate {
 		var enemyNumber = rand.Intn(len(g.enemies))
 		if g.enemies[enemyNumber].State == EntityState.Alive {
 			var enemyWidth = g.enemies[enemyNumber].GetEnemyWidth()
@@ -122,6 +124,7 @@ func (g *Game) updateDifficulty(currentTimestamp int64) {
 	for i, _ := range g.enemies {
 		g.enemies[i].HorizontalSpeed = min(3.0, 1+float64(elapsedTime)/(1000*10*10))
 	}
+	g.enemyFireRate = min(10, int(elapsedTime/(1000*15)))
 }
 
 func (g *Game) reset() {
@@ -131,6 +134,8 @@ func (g *Game) reset() {
 	g.bunkerSprites = setupBunkers()
 	g.enemies = setupEnemies()
 	g.enemyBulletCount = 0
+	g.enemyFireRate = 1
+	g.enemyCount = len(g.enemies)
 	g.player = &models.Player{
 		Position: models.Position{
 			X: (windowWidth / 2),
@@ -173,9 +178,35 @@ func (g *Game) Update() error {
 	return nil
 }
 
-func renderPlayerImages(g *Game, screen *ebiten.Image) {
+func (g *Game) renderScore(screen *ebiten.Image, neonGreen color.RGBA) {
+
+	textOp := &text.DrawOptions{}
+	textOp.GeoM.Translate(50, 13)
+	textOp.ColorScale.ScaleWithColor(color.White)
+	text.Draw(screen, "SCORE", &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}, textOp)
+
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(150, 13)
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	text.Draw(screen, strconv.Itoa(g.score), &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}, textOp)
+}
+
+func (g *Game) renderLives(screen *ebiten.Image) {
+	textOp := &text.DrawOptions{}
+	textOp.GeoM.Translate(400, 13)
+	textOp.ColorScale.ScaleWithColor(color.White)
+	text.Draw(screen, "LIVES", &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}, textOp)
+
 	playerImgPositions := []struct{ x, y float64 }{
-		{g.player.Position.X, g.player.Position.Y},
 		{480, 10},
 		{530, 10},
 		{580, 10},
@@ -191,14 +222,21 @@ func renderPlayerImages(g *Game, screen *ebiten.Image) {
 	}
 }
 
-func renderBunkerImages(g *Game, screen *ebiten.Image, neonGreen color.RGBA) {
+func (g *Game) renderPlayer(screen *ebiten.Image) {
+	for _, rect := range sprites.GetPlayerRectangles() {
+		ebitenutil.DrawRect(screen, rect.Position.X+g.player.Position.X, rect.Position.Y+g.player.Position.Y,
+			rect.Width, rect.Height, rect.Color)
+	}
+}
+
+func (g *Game) renderBunker(screen *ebiten.Image) {
 	for _, bunkerSprite := range g.bunkerSprites {
 		ebitenutil.DrawRect(screen, bunkerSprite.Position.X, bunkerSprite.Position.Y,
 			bunkerSprite.Width, bunkerSprite.Height, bunkerSprite.Color)
 	}
 }
 
-func renderBullets(g *Game, screen *ebiten.Image) {
+func (g *Game) renderBullets(screen *ebiten.Image) {
 	if g.player.Bullet.IsActive {
 		for _, rect := range sprites.GetPlayerBulletRectangles() {
 			ebitenutil.DrawRect(screen, rect.Position.X+g.player.Bullet.Position.X, rect.Position.Y+g.player.Bullet.Position.Y,
@@ -231,11 +269,11 @@ func getSpritesHeight(sprites []models.Rectangle) float64 {
 
 func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (float64, []models.Enemy) {
 	var cols = 10
-	var imgWidth float64 = float64(img.Bounds().Dx()) * scale
-	var imgHeight float64 = float64(img.Bounds().Dy()) * scale
-	var xPosStart float64 = float64(windowWidth/2) - (imgWidth / 2) - 40 - imgWidth*5
-	var xGap float64 = imgWidth + 10
-	var yGap float64 = imgHeight + 10
+	var imgWidth = float64(img.Bounds().Dx()) * scale
+	var imgHeight = float64(img.Bounds().Dy()) * scale
+	var xPosStart = float64(windowWidth/2) - (imgWidth / 2) - 40 - imgWidth*5
+	var xGap = imgWidth + 10
+	var yGap = imgHeight + 10
 	var enemies = []models.Enemy{}
 
 	for y, rowCnt := float64(yPosStart), 0; y < float64(windowHeight) && rowCnt < rows; y, rowCnt = y+yGap, rowCnt+1 {
@@ -248,7 +286,7 @@ func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (
 	return yGap * float64(rows), enemies
 }
 
-func renderEnemies(g *Game, screen *ebiten.Image) {
+func (g *Game) renderEnemies(screen *ebiten.Image) {
 	for _, enemy := range g.enemies {
 		if enemy.State == EntityState.Alive {
 			opts := &ebiten.DrawImageOptions{}
@@ -317,7 +355,7 @@ func hasCollidedBullets(playerBullet models.Bullet, enemyBullet models.Bullet) b
 	return math.Abs(playerBulletX-enemyBulletX) <= 4 && playerBulletTopEdge <= enemyBulletBottomEdge && playerBulletTopEdge >= enemyBulletTopEdge
 }
 
-func detectCollision(g *Game) {
+func (g *Game) detectCollision() {
 	if g.player.Bullet.IsActive {
 		for i := range g.bunkerSprites {
 			if g.bunkerSprites[i].Height > 0 {
@@ -342,6 +380,10 @@ func detectCollision(g *Game) {
 					g.player.Bullet.IsActive = false
 					g.enemies[i].State = EntityState.Dead
 					g.score += 5
+					g.enemyCount--
+					if g.enemyCount == 0 {
+						g.screen = Screen.GameOver
+					}
 				}
 			}
 		}
@@ -432,6 +474,9 @@ func (g *Game) DrawMenu(screen *ebiten.Image, neonGreen color.RGBA) {
 
 func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
 	msg := "GAME OVER"
+	if g.enemyCount == 0 {
+		msg = "YOU'VE WON!!!"
+	}
 	face := &text.GoTextFace{
 		Source: mplusFaceSource,
 		Size:   bigFontSize,
@@ -473,29 +518,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	imgOp.GeoM.Scale(0.5, 0.5)
 	screen.DrawImage(bgImg, imgOp)
 
-	textOp := &text.DrawOptions{}
-	textOp.GeoM.Translate(50, 13)
-	textOp.ColorScale.ScaleWithColor(color.White)
-	text.Draw(screen, "SCORE", &text.GoTextFace{
-		Source: mplusFaceSource,
-		Size:   normalFontSize,
-	}, textOp)
-
-	textOp = &text.DrawOptions{}
-	textOp.GeoM.Translate(150, 13)
-	textOp.ColorScale.ScaleWithColor(neonGreen)
-	text.Draw(screen, strconv.Itoa(g.score), &text.GoTextFace{
-		Source: mplusFaceSource,
-		Size:   normalFontSize,
-	}, textOp)
-
-	textOp = &text.DrawOptions{}
-	textOp.GeoM.Translate(400, 13)
-	textOp.ColorScale.ScaleWithColor(color.RGBA{0xFF, 0xFF, 0xFF, 0xFF})
-	text.Draw(screen, "LIVES", &text.GoTextFace{
-		Source: mplusFaceSource,
-		Size:   normalFontSize,
-	}, textOp)
+	g.renderScore(screen, neonGreen)
+	g.renderLives(screen)
 
 	if g.screen == Screen.Menu {
 		g.DrawMenu(screen, neonGreen)
@@ -503,11 +527,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.DrawGameOver(screen, neonGreen)
 		return
 	} else {
-		detectCollision(g)
-		renderBullets(g, screen)
-		renderPlayerImages(g, screen)
-		renderEnemies(g, screen)
-		renderBunkerImages(g, screen, neonGreen)
+		g.detectCollision()
+		g.renderBullets(screen)
+		g.renderEnemies(screen)
+		g.renderPlayer(screen)
+		g.renderBunker(screen)
 
 		vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
 			float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
@@ -556,6 +580,7 @@ func main() {
 	g := &Game{
 		screen: Screen.Menu,
 	}
+	g.reset()
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
