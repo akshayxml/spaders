@@ -72,7 +72,7 @@ func (g *Game) moveEnemySideways() {
 			} else if moveLeft {
 				g.enemies[i].HorizontalDirection = -1
 			}
-			g.enemies[i].Position.X += float64(g.enemies[i].HorizontalDirection)
+			g.enemies[i].Position.X += g.enemies[i].HorizontalSpeed * float64(g.enemies[i].HorizontalDirection)
 		}
 	}
 }
@@ -114,6 +114,13 @@ func (g *Game) generateEnemyBullets() {
 			g.addEnemyBullet(bullet)
 			bullet.Fire()
 		}
+	}
+}
+
+func (g *Game) updateDifficulty(currentTimestamp int64) {
+	var elapsedTime = currentTimestamp - g.playStartTime
+	for i, _ := range g.enemies {
+		g.enemies[i].HorizontalSpeed = min(3.0, 1+float64(elapsedTime)/(1000*10*10))
 	}
 }
 
@@ -161,6 +168,7 @@ func (g *Game) Update() error {
 		g.moveEnemySideways()
 		g.generateEnemyBullets()
 		g.moveBullets()
+		g.updateDifficulty(currentTimestamp)
 	}
 	return nil
 }
@@ -232,7 +240,7 @@ func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (
 
 	for y, rowCnt := float64(yPosStart), 0; y < float64(windowHeight) && rowCnt < rows; y, rowCnt = y+yGap, rowCnt+1 {
 		for x, colCnt := float64(xPosStart), 0; x < float64(windowWidth) && colCnt < cols; x, colCnt = x+xGap, colCnt+1 {
-			var enemy = models.Enemy{models.Position{x, y}, img, scale, EntityState.Alive, 1}
+			var enemy = models.Enemy{models.Position{x, y}, img, scale, EntityState.Alive, 1, 1.0}
 			enemies = append(enemies, enemy)
 		}
 	}

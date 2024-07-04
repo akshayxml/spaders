@@ -11,6 +11,7 @@ type Enemy struct {
 	Scale               float64
 	State               EntityState.EntityState
 	HorizontalDirection int
+	HorizontalSpeed     float64
 }
 
 func (e *Enemy) GetEnemyWidth() float64 {
