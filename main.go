@@ -49,17 +49,14 @@ const (
 )
 
 type Game struct {
-	player           *models.Player
-	enemies          []models.Enemy
-	score            int
-	enemyBullets     []models.Bullet
-	enemyBulletCount int
-	enemyCount       int
-	bunkerSprites    []models.Rectangle
-	screen           Screen.Screen
-	playStartTime    int64
-	enemyFireRate    int
-	difficulty       int
+	player        *models.Player
+	enemies       []models.Enemy
+	enemyState    models.EnemyState
+	score         int
+	bunkerSprites []models.Rectangle
+	screen        Screen.Screen
+	playStartTime int64
+	difficulty    int
 }
 
 func (g *Game) moveEnemySideways() {
@@ -71,17 +68,16 @@ func (g *Game) moveEnemySideways() {
 			rightMostEnemy = max(rightMostEnemy, g.enemies[i].Position.X)
 		}
 	}
-	moveLeft := rightMostEnemy >= rightBoundary
-	moveRight := leftMostEnemy < leftBoundary
+
+	if leftMostEnemy < leftBoundary {
+		g.enemyState.HorizontalDirection = 1
+	} else if rightMostEnemy >= rightBoundary {
+		g.enemyState.HorizontalDirection = -1
+	}
 
 	for i := range g.enemies {
 		if g.enemies[i].State == EntityState.Alive {
-			if moveRight {
-				g.enemies[i].HorizontalDirection = 1
-			} else if moveLeft {
-				g.enemies[i].HorizontalDirection = -1
-			}
-			g.enemies[i].Position.X += g.enemies[i].HorizontalSpeed * float64(g.enemies[i].HorizontalDirection)
+			g.enemies[i].Position.X += g.enemyState.HorizontalSpeed * float64(g.enemyState.HorizontalDirection)
 		}
 	}
 }
@@ -91,28 +87,28 @@ func (g *Game) moveBullets() {
 		g.player.Bullet.Position.Y += float64(g.player.Bullet.Speed * g.player.Bullet.Direction)
 	}
 
-	for i := 0; i < g.enemyBulletCount; i++ {
-		g.enemyBullets[i].Position.Y += float64(g.enemyBullets[i].Speed * g.enemyBullets[i].Direction)
+	for i := 0; i < g.enemyState.BulletCount; i++ {
+		g.enemyState.EnemyBullets[i].Position.Y += float64(g.enemyState.EnemyBullets[i].Speed * g.enemyState.EnemyBullets[i].Direction)
 	}
 }
 
 func (g *Game) addEnemyBullet(bullet models.Bullet) {
-	if g.enemyBulletCount < len(g.enemyBullets) {
-		g.enemyBullets[g.enemyBulletCount] = bullet
+	if g.enemyState.BulletCount < len(g.enemyState.EnemyBullets) {
+		g.enemyState.EnemyBullets[g.enemyState.BulletCount] = bullet
 	} else {
-		g.enemyBullets = append(g.enemyBullets, bullet)
+		g.enemyState.EnemyBullets = append(g.enemyState.EnemyBullets, bullet)
 	}
-	g.enemyBulletCount++
+	g.enemyState.BulletCount++
 }
 
 func (g *Game) removeEnemyBullet(bulletIndex int) {
-	g.enemyBullets[bulletIndex], g.enemyBullets[g.enemyBulletCount-1] = g.enemyBullets[g.enemyBulletCount-1], g.enemyBullets[bulletIndex]
-	g.enemyBulletCount--
+	g.enemyState.EnemyBullets[bulletIndex], g.enemyState.EnemyBullets[g.enemyState.BulletCount-1] = g.enemyState.EnemyBullets[g.enemyState.BulletCount-1], g.enemyState.EnemyBullets[bulletIndex]
+	g.enemyState.BulletCount--
 }
 
 func (g *Game) generateEnemyBullets() {
 	rand.Seed(time.Now().UnixNano())
-	if rand.Intn(100) <= g.enemyFireRate {
+	if rand.Intn(100) <= g.enemyState.EnemyFireRate {
 		var enemyNumber = rand.Intn(len(g.enemies))
 		if g.enemies[enemyNumber].State == EntityState.Alive {
 			var enemyWidth = g.enemies[enemyNumber].GetEnemyWidth()
@@ -135,18 +131,18 @@ func (g *Game) updateDifficulty(currentTimestamp int64) {
 	var baseFireRateLimitChangeIntervalMs = 10000
 
 	for i, _ := range g.enemies {
-		var horizontalSpeedChangeIntervalMs = int64(baseHorizontalSpeedChangeIntervalMs - ((baseHorizontalSpeedChangeIntervalMs / 3) * (g.difficulty - 1)))
-		var horizontalSpeedLimit = baseHorizontalSpeedLimit + float64(g.difficulty/2)
-		g.enemies[i].HorizontalSpeed = min(horizontalSpeedLimit, 1+float64(elapsedTime)/float64(horizontalSpeedChangeIntervalMs*10))
-
 		var verticalMoveIntervalMs = int64(baseVerticalMoveIntervalMs - ((baseVerticalMoveIntervalMs / 3) * (g.difficulty - 1)))
 		if elapsedTime >= verticalMoveIntervalMs && elapsedTime%verticalMoveIntervalMs <= 100 {
-			g.enemies[i].Position.Y++
+			g.enemies[i].Position.Y += float64(g.difficulty)
 		}
 	}
 
+	var horizontalSpeedChangeIntervalMs = int64(baseHorizontalSpeedChangeIntervalMs - ((baseHorizontalSpeedChangeIntervalMs / 3) * (g.difficulty - 1)))
+	var horizontalSpeedLimit = baseHorizontalSpeedLimit + float64(g.difficulty/2)
+	g.enemyState.HorizontalSpeed = min(horizontalSpeedLimit, 1+float64(elapsedTime)/float64(horizontalSpeedChangeIntervalMs*10))
+
 	var fireRateLimitChangeIntervalMs = int64(baseFireRateLimitChangeIntervalMs - ((baseFireRateLimitChangeIntervalMs / 3) * (g.difficulty - 1)))
-	g.enemyFireRate = min(baseFireRateLimit*g.difficulty, int(elapsedTime/fireRateLimitChangeIntervalMs))
+	g.enemyState.EnemyFireRate = min(baseFireRateLimit*g.difficulty, int(elapsedTime/fireRateLimitChangeIntervalMs))
 }
 
 func (g *Game) renderScore(screen *ebiten.Image, neonGreen color.RGBA) {
@@ -214,9 +210,9 @@ func (g *Game) renderBullets(screen *ebiten.Image) {
 				rect.Width, rect.Height, rect.Color)
 		}
 	}
-	for i := 0; i < g.enemyBulletCount; i++ {
+	for i := 0; i < g.enemyState.BulletCount; i++ {
 		for _, rect := range sprites.GetEnemyBulletRectangles() {
-			ebitenutil.DrawRect(screen, rect.Position.X+g.enemyBullets[i].Position.X, rect.Position.Y+g.enemyBullets[i].Position.Y,
+			ebitenutil.DrawRect(screen, rect.Position.X+g.enemyState.EnemyBullets[i].Position.X, rect.Position.Y+g.enemyState.EnemyBullets[i].Position.Y,
 				rect.Width, rect.Height, rect.Color)
 		}
 	}
@@ -249,7 +245,7 @@ func getEnemies(rows int, yPosStart float64, img *ebiten.Image, scale float64) (
 
 	for y, rowCnt := float64(yPosStart), 0; y < float64(windowHeight) && rowCnt < rows; y, rowCnt = y+yGap, rowCnt+1 {
 		for x, colCnt := float64(xPosStart), 0; x < float64(windowWidth) && colCnt < cols; x, colCnt = x+xGap, colCnt+1 {
-			var enemy = models.Enemy{models.Position{x, y}, img, scale, EntityState.Alive, 1, 1.0}
+			var enemy = models.Enemy{models.Position{x, y}, img, scale, EntityState.Alive}
 			enemies = append(enemies, enemy)
 		}
 	}
@@ -333,8 +329,8 @@ func (g *Game) detectCollision() {
 					g.player.Bullet.IsActive = false
 					g.enemies[i].State = EntityState.Dead
 					g.score += 5
-					g.enemyCount--
-					if g.enemyCount == 0 {
+					g.enemyState.EnemyCount--
+					if g.enemyState.EnemyCount == 0 {
 						g.screen = Screen.GameOver
 					}
 				}
@@ -346,18 +342,18 @@ func (g *Game) detectCollision() {
 		}
 	}
 
-	for i := 0; i < g.enemyBulletCount; i++ {
-		if g.enemyBullets[i].IsActive {
+	for i := 0; i < g.enemyState.BulletCount; i++ {
+		if g.enemyState.EnemyBullets[i].IsActive {
 			for j := range g.bunkerSprites {
 				if g.bunkerSprites[j].Height > 0 {
 					var bunkerSpriteLeft = g.bunkerSprites[j].Position.X
 					var bunkerSpriteRight = g.bunkerSprites[j].Position.X + g.bunkerSprites[j].Width
 					var bunkerSpriteTop = g.bunkerSprites[j].Position.Y
 					var bunkerSpriteBottom = g.bunkerSprites[j].Position.Y + g.bunkerSprites[j].Height
-					if g.enemyBullets[i].HasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom) {
+					if g.enemyState.EnemyBullets[i].HasCollided(bunkerSpriteLeft, bunkerSpriteRight, bunkerSpriteTop, bunkerSpriteBottom) {
 						g.bunkerSprites[j].Height -= sprites.GetBunkerRectangles()[0].Height
 						g.bunkerSprites[j].Position.Y += sprites.GetBunkerRectangles()[0].Height
-						g.enemyBullets[i].IsActive = false
+						g.enemyState.EnemyBullets[i].IsActive = false
 					}
 				}
 			}
@@ -367,9 +363,9 @@ func (g *Game) detectCollision() {
 				var playerRightEdge = g.player.Position.X + playerSprite.Position.X + playerSprite.Width
 				var playerTopEdge = g.player.Position.Y + playerSprite.Position.Y
 				var playerBottomEdge = g.player.Position.Y + playerSprite.Position.Y + playerSprite.Height
-				if g.enemyBullets[i].HasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge) {
+				if g.enemyState.EnemyBullets[i].HasCollided(playerLeftEdge, playerRightEdge, playerTopEdge, playerBottomEdge) {
 					g.player.Lives--
-					g.enemyBullets[i].IsActive = false
+					g.enemyState.EnemyBullets[i].IsActive = false
 					if g.player.Lives == 0 {
 						g.screen = Screen.GameOver
 					}
@@ -377,22 +373,22 @@ func (g *Game) detectCollision() {
 			}
 
 			if g.player.Bullet.IsActive {
-				if g.player.Bullet.HasCollidedBullets(g.enemyBullets[i]) {
+				if g.player.Bullet.HasCollidedBullets(g.enemyState.EnemyBullets[i]) {
 					g.player.Bullet.IsActive = false
-					g.enemyBullets[i].IsActive = false
+					g.enemyState.EnemyBullets[i].IsActive = false
 					g.score += 3
 				}
 			}
 
-			if g.enemyBullets[i].Position.Y >= windowHeight-20 {
-				g.enemyBullets[i].IsActive = false
+			if g.enemyState.EnemyBullets[i].Position.Y >= windowHeight-20 {
+				g.enemyState.EnemyBullets[i].IsActive = false
 			}
 		}
 	}
 
 	var i = 0
-	for i < g.enemyBulletCount {
-		if !g.enemyBullets[i].IsActive {
+	for i < g.enemyState.BulletCount {
+		if !g.enemyState.EnemyBullets[i].IsActive {
 			g.removeEnemyBullet(i)
 		} else {
 			i++
@@ -427,7 +423,7 @@ func (g *Game) DrawMenu(screen *ebiten.Image, neonGreen color.RGBA) {
 
 func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
 	msg := "GAME OVER"
-	if g.enemyCount == 0 {
+	if g.enemyState.EnemyCount == 0 {
 		msg = "YOU'VE WON!!!"
 	}
 	face := &text.GoTextFace{
@@ -470,9 +466,6 @@ func (g *Game) reset() {
 	g.score = 0
 	g.bunkerSprites = setupBunkers()
 	g.enemies = setupEnemies()
-	g.enemyBulletCount = 0
-	g.enemyFireRate = 1
-	g.enemyCount = len(g.enemies)
 	g.player = &models.Player{
 		Position: models.Position{
 			X: (windowWidth / 2),
@@ -487,6 +480,13 @@ func (g *Game) reset() {
 		},
 	}
 	g.difficulty = 3
+	g.enemyState = models.EnemyState{
+		HorizontalDirection: 1,
+		HorizontalSpeed:     1.0,
+		BulletCount:         0,
+		EnemyCount:          len(g.enemies),
+		EnemyFireRate:       1,
+	}
 }
 
 func (g *Game) Update() error {

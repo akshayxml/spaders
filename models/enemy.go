@@ -6,12 +6,10 @@ import (
 )
 
 type Enemy struct {
-	Position            Position
-	Img                 *ebiten.Image
-	Scale               float64
-	State               EntityState.EntityState
-	HorizontalDirection int
-	HorizontalSpeed     float64
+	Position Position
+	Img      *ebiten.Image
+	Scale    float64
+	State    EntityState.EntityState
 }
 
 func (e *Enemy) GetEnemyWidth() float64 {
