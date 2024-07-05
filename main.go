@@ -115,7 +115,7 @@ func (g *Game) generateEnemyBullets() {
 			var enemyHeight = g.enemies[enemyNumber].GetEnemyHeight()
 			var bullet = models.Bullet{models.Position{X: g.enemies[enemyNumber].Position.X + enemyWidth/2,
 				Y: g.enemies[enemyNumber].Position.Y + enemyHeight/2},
-				1, 1, true, getSpritesHeight(sprites.GetEnemyBulletRectangles())}
+				1, g.difficulty, true, getSpritesHeight(sprites.GetEnemyBulletRectangles())}
 			g.addEnemyBullet(bullet)
 			bullet.Fire()
 		}
@@ -386,6 +386,13 @@ func (g *Game) detectCollision() {
 		}
 	}
 
+	for _, enemy := range g.enemies {
+		if enemy.State == EntityState.Alive && enemy.Position.Y >= g.player.Position.Y {
+			g.player.Lives = 0
+			g.screen = Screen.GameOver
+		}
+	}
+
 	var i = 0
 	for i < g.enemyState.BulletCount {
 		if !g.enemyState.EnemyBullets[i].IsActive {
@@ -534,9 +541,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	} else {
 		g.detectCollision()
 		g.renderBullets(screen)
+		g.renderBunker(screen)
 		g.renderEnemies(screen)
 		g.renderPlayer(screen)
-		g.renderBunker(screen)
 
 		vector.StrokeLine(screen, leftBoundary, float32(windowHeight-10),
 			float32(windowWidth-50), float32(windowHeight-10), 2, neonGreen, true)
