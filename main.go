@@ -10,8 +10,10 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font/sfnt"
 	"image/color"
 	_ "image/jpeg"
 	"io"
@@ -30,6 +32,7 @@ var (
 	enemyThreeImg   *ebiten.Image
 	audioContext    *audio.Context
 	player          *audio.Player
+	fontFace        *sfnt.Font
 )
 
 const (
@@ -426,6 +429,49 @@ func (g *Game) DrawMenu(screen *ebiten.Image, neonGreen color.RGBA) {
 	textOp.ColorScale.ScaleWithColor(color.White)
 	textOp.PrimaryAlign = text.AlignCenter
 	text.Draw(screen, msg, face, textOp)
+
+	msg = "EASY"
+	if g.difficulty == 1 {
+		msg = "->EASY"
+	}
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2)+70)
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
+	msg = "MEDIUM"
+	if g.difficulty == 2 {
+		msg = "->MEDIUM"
+	}
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2)+90)
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
+	msg = "DEATHZONE"
+	if g.difficulty == 3 {
+		msg = "->DEATHZONE"
+	}
+	face = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   normalFontSize,
+	}
+	textOp = &text.DrawOptions{}
+	textOp.GeoM.Translate(float64(windowWidth/2), float64(windowHeight/2)+110)
+	textOp.ColorScale.ScaleWithColor(neonGreen)
+	textOp.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, msg, face, textOp)
+
 }
 
 func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
@@ -468,7 +514,7 @@ func (g *Game) DrawGameOver(screen *ebiten.Image, neonGreen color.RGBA) {
 }
 
 func (g *Game) reset() {
-	g.screen = Screen.Play
+	g.screen = Screen.Menu
 	g.playStartTime = time.Now().UnixMilli()
 	g.score = 0
 	g.bunkerSprites = setupBunkers()
@@ -486,7 +532,6 @@ func (g *Game) reset() {
 			IsActive:  false,
 		},
 	}
-	g.difficulty = 3
 	g.enemyState = models.EnemyState{
 		HorizontalDirection: 1,
 		HorizontalSpeed:     1.0,
@@ -497,8 +542,23 @@ func (g *Game) reset() {
 }
 
 func (g *Game) Update() error {
-	if g.screen == Screen.Menu || g.screen == Screen.GameOver {
-		if ebiten.IsKeyPressed(ebiten.KeySpace) {
+	if g.screen == Screen.Menu {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			g.reset()
+			g.screen = Screen.Play
+			fmt.Print(g.difficulty)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			g.difficulty = g.difficulty%3 + 1
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
+			g.difficulty--
+			if g.difficulty == 0 {
+				g.difficulty = 3
+			}
+		}
+	} else if g.screen == Screen.GameOver {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			g.reset()
 		}
 	} else if g.screen == Screen.Play {
@@ -509,8 +569,8 @@ func (g *Game) Update() error {
 			g.player.MoveRight(rightBoundary)
 		}
 		currentTimestamp := time.Now().UnixMilli()
-		if ebiten.IsKeyPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive && currentTimestamp > g.playStartTime+500 {
-			g.player.Bullet.Position = models.Position{g.player.Position.X + 20, g.player.Position.Y}
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !g.player.Bullet.IsActive {
+			g.player.Bullet.Position = models.Position{X: g.player.Position.X + 20, Y: g.player.Position.Y}
 			g.player.Bullet.Height = getSpritesHeight(sprites.GetPlayerBulletRectangles())
 			g.player.Bullet.Fire()
 		}
@@ -599,10 +659,10 @@ func playAudio(f io.Reader) error {
 	}
 
 	if err != nil {
-		fmt.Println("agb")
 		log.Fatal(err)
 	}
 	player.Play()
+	fmt.Println("agb")
 
 	return nil
 }
@@ -623,10 +683,8 @@ func main() {
 	}
 
 	g := &Game{}
-	g.player = &models.Player{
-		Lives: 3,
-	}
-	g.screen = Screen.Menu
+	g.reset()
+	g.difficulty = 1
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
