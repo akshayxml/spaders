@@ -136,7 +136,7 @@ func (g *Game) updateDifficulty(currentTimestamp int64) {
 	for i, _ := range g.enemies {
 		var verticalMoveIntervalMs = int64(baseVerticalMoveIntervalMs - ((baseVerticalMoveIntervalMs / 3) * (g.difficulty - 1)))
 		if elapsedTime >= verticalMoveIntervalMs && elapsedTime%verticalMoveIntervalMs <= 100 {
-			g.enemies[i].Position.Y += float64(g.difficulty)
+			g.enemies[i].Position.Y += min(2.5, float64(g.difficulty))
 		}
 	}
 
@@ -539,6 +539,9 @@ func (g *Game) reset() {
 		EnemyCount:          len(g.enemies),
 		EnemyFireRate:       1,
 	}
+	if g.difficulty == 3 {
+		g.player.Lives = 1
+	}
 }
 
 func (g *Game) Update() error {
@@ -562,6 +565,9 @@ func (g *Game) Update() error {
 			g.reset()
 		}
 	} else if g.screen == Screen.Play {
+		if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+			g.screen = Screen.Menu
+		}
 		if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
 			g.player.MoveLeft()
 		}
@@ -683,8 +689,8 @@ func main() {
 	}
 
 	g := &Game{}
-	g.reset()
 	g.difficulty = 1
+	g.reset()
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
